@@ -246,31 +246,20 @@ public class UserController {
     }
 
     /**
-     * 测试接口 - 清空测试用户
-     * 用于清理测试数据
+     * 测试接口 - CI/CD 流水线验证
+     * 用于验证 push 后 CI/CD 是否自动部署成功
      *
-     * @return 清空结果
+     * @return 部署版本信息和当前时间
      */
-    @Operation(summary = "测试接口 - 清空测试用户", description = "用于清理测试数据")
-    @DeleteMapping("/test/clear")
-    @OperationLog(operation = "清空测试用户", module = "用户管理")
-    public Result<String> clearTestUsers() {
-        userService.clearTestUsers();
-        return Result.success("成功清空测试用户");
+    @Operation(summary = "测试接口 - CI/CD 流水线验证", description = "验证 CI/CD 是否自动部署成功")
+    @GetMapping("/test/cicd-ping")
+    public Result<java.util.Map<String, Object>> cicdPing() {
+        return Result.success(java.util.Map.of(
+                "message", "pong",
+                "version", "1.0.2",
+                "deployTime", java.time.LocalDateTime.now().toString(),
+                "description", "If you see this, CI/CD pipeline works!"
+        ));
     }
 
-    /**
-     * 测试接口 - 检查用户权限
-     * 用于测试权限系统
-     *
-     * @param permission 权限编码
-     * @return 是否拥有该权限
-     */
-    // @Operation(summary = "测试接口 - 检查用户权限", description = "用于测试权限系统")
-    // @GetMapping("/test/has-permission")
-    // @OperationLog(operation = "检查用户权限", module = "用户管理")
-    // public Result<Boolean> checkPermission(@RequestParam String permission) {
-    //     boolean hasPermission = userService.hasPermission(permission);
-    //     return Result.success(hasPermission);
-    // }
 }
