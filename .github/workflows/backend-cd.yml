@@ -127,24 +127,24 @@ jobs:
           echo ""
           echo "=== 4. 创建 systemd 服务文件（如果不存在）==="
           if [ ! -f /etc/systemd/system/admin-system.service ]; then
-            sudo tee /etc/systemd/system/admin-system.service > /dev/null <<'SVC_EOF'
-[Unit]
-Description=Admin System Backend
-After=network.target
+            sudo bash -c 'cat > /etc/systemd/system/admin-system.service << "SVC_EOF"
+            [Unit]
+            Description=Admin System Backend
+            After=network.target
 
-[Service]
-Type=simple
-User=github-runner
-WorkingDirectory=/opt/admin-system
-ExecStart=/usr/bin/java -jar /opt/admin-system/admin-system.jar --server.port=8080
-Restart=on-failure
-RestartSec=5
-StandardOutput=append:/opt/admin-system/app.log
-StandardError=append:/opt/admin-system/app.log
+            [Service]
+            Type=simple
+            User=github-runner
+            WorkingDirectory=/opt/admin-system
+            ExecStart=/usr/bin/java -jar /opt/admin-system/admin-system.jar --server.port=8080
+            Restart=on-failure
+            RestartSec=5
+            StandardOutput=append:/opt/admin-system/app.log
+            StandardError=append:/opt/admin-system/app.log
 
-[Install]
-WantedBy=multi-user.target
-SVC_EOF
+            [Install]
+            WantedBy=multi-user.target
+            SVC_EOF'
             sudo systemctl daemon-reload
             sudo systemctl enable admin-system.service
             echo "✅ 已创建 systemd 服务"
