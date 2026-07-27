@@ -1,8 +1,9 @@
 name: Backend CD
 
 # 触发条件：
-# 1. Backend CI 成功后自动触发
+# 1. Backend CI 成功后自动触发（仅在 main 分支，即 PR 合并后）
 # 2. 也支持手动触发（在 Actions 页面点 Run workflow）
+# 注意：PR 工作流下，CD 只会在 PR 合并到 main 后触发，不会在 feature 分支上部署
 on:
   workflow_run:
     workflows: ['Backend CI']

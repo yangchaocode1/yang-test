@@ -1,0 +1,44 @@
+# CodeRabbit AI 代码审查配置
+# 文档: https://docs.coderabbit.ai/getting-started/configure-coderabbit
+# 安装 GitHub App: https://github.com/apps/coderabbitai/installations/new
+
+# 审查行为配置
+reviews:
+  # 审查模式: 全自动审查
+  auto_review:
+    enabled: true
+    # 在 PR 创建和更新时都触发审查
+    drafts: false
+
+  # 审查路径配置
+  path_filters:
+    - "!**/*.lock"
+    - "!**/package-lock.json"
+    - "!**/yarn.lock"
+    - "!**/*.min.js"
+    - "!**/*.min.css"
+
+  # 审查重点
+  review_status: true
+  abort_on_close: true
+
+# 自动提问配置
+chat:
+  auto_reply: true
+
+# 知识库配置（让 AI 了解项目上下文）
+learnable_docs:
+  - "backend/src/main/resources/project-guide.md"
+
+# 语言配置
+language: zh-CN
+
+# 提交信息检查
+commit_guidelines:
+  enforce: false
+  # 建议遵循 Conventional Commits
+  # feat: 新功能
+  # fix: 修复 bug
+  # chore: 杂项
+  # ci: CI/CD 相关
+  # docs: 文档
