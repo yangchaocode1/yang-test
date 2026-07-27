@@ -245,21 +245,4 @@ public class UserController {
         return Result.success("成功创建 " + count + " 个测试用户");
     }
 
-    /**
-     * 测试接口 - CI/CD 流水线验证
-     * 用于验证 push 后 CI/CD 是否自动部署成功
-     *
-     * @return 部署版本信息和当前时间
-     */
-    @Operation(summary = "测试接口 - CI/CD 流水线验证", description = "验证 CI/CD 是否自动部署成功")
-    @GetMapping("/test/cicd-ping")
-    public Result<java.util.Map<String, Object>> cicdPing() {
-        return Result.success(java.util.Map.of(
-                "message", "pong",
-                "version", "1.0.2",
-                "deployTime", java.time.LocalDateTime.now().toString(),
-                "description", "If you see this, CI/CD pipeline works!"
-        ));
-    }
-
 }
