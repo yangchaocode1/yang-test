@@ -94,7 +94,7 @@ jobs:
           echo "=== 构建产物 ==="
           ls -la target/*.jar
 
-      # 5. 部署：停旧服务 + 拷新 jar + 启新服务
+      # 5. 部署：停旧服务 + 拷新 jar + 启新服务（用 systemd 管理，避免被 runner 杀）
       - name: Deploy and Restart Service
         run: |
           set -e
@@ -102,24 +102,21 @@ jobs:
 
           echo "=== 1. 创建部署目录 ==="
           sudo mkdir -p /opt/admin-system
-          sudo chown $USER:$USER /opt/admin-system
+          sudo chown github-runner:github-runner /opt/admin-system
 
           echo ""
-          echo "=== 2. 停止旧服务 ==="
-          if [ -f /opt/admin-system/admin-system.pid ]; then
-            OLD_PID=$(cat /opt/admin-system/admin-system.pid)
-            if kill -0 $OLD_PID 2>/dev/null; then
-              echo "停止旧进程 PID: $OLD_PID"
-              kill $OLD_PID
-              sleep 5
-            fi
-            rm -f /opt/admin-system/admin-system.pid
+          echo "=== 2. 停止旧服务（systemd 管理）==="
+          if systemctl is-active --quiet admin-system.service 2>/dev/null; then
+            sudo systemctl stop admin-system.service
+            echo "已停止 admin-system.service"
+          else
+            echo "admin-system.service 未运行"
           fi
           # 兜底：杀掉占用 8080 的进程
           PORT_PID=$(ss -tlnp 2>/dev/null | grep ':8080' | grep -oP 'pid=\K[0-9]+' | head -1)
           if [ -n "$PORT_PID" ]; then
             echo "强制杀掉占用 8080 的进程: $PORT_PID"
-            kill -9 $PORT_PID 2>/dev/null || true
+            sudo kill -9 $PORT_PID 2>/dev/null || true
           fi
 
           echo ""
@@ -128,64 +125,77 @@ jobs:
           ls -la /opt/admin-system/
 
           echo ""
-          echo "=== 4. 启动新服务（用 setsid 脱离 runner 进程组，避免被清理）==="
-          cd /opt/admin-system
-          # setsid 让进程在新会话中运行，runner 不会清理它
-          # disown 让进程脱离 shell 任务表
-          setsid nohup java -jar admin-system.jar --server.port=8080 > /opt/admin-system/app.log 2>&1 < /dev/null &
-          disown
-          # 等一下让进程启动
-          sleep 2
-          # 记录 PID（找监听 8080 的 java 进程）
-          NEW_PID=$(pgrep -f 'admin-system.jar' | head -1)
-          echo "$NEW_PID" > /opt/admin-system/admin-system.pid
-          echo "新服务 PID: $NEW_PID"
+          echo "=== 4. 创建 systemd 服务文件（如果不存在）==="
+          if [ ! -f /etc/systemd/system/admin-system.service ]; then
+            sudo tee /etc/systemd/system/admin-system.service > /dev/null <<'SVC_EOF'
+[Unit]
+Description=Admin System Backend
+After=network.target
+
+[Service]
+Type=simple
+User=github-runner
+WorkingDirectory=/opt/admin-system
+ExecStart=/usr/bin/java -jar /opt/admin-system/admin-system.jar --server.port=8080
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/opt/admin-system/app.log
+StandardError=append:/opt/admin-system/app.log
+
+[Install]
+WantedBy=multi-user.target
+SVC_EOF
+            sudo systemctl daemon-reload
+            sudo systemctl enable admin-system.service
+            echo "✅ 已创建 systemd 服务"
+          else
+            echo "systemd 服务已存在，跳过创建"
+          fi
 
           echo ""
-          echo "=== 5. 等待启动（25 秒）==="
+          echo "=== 5. 启动新服务（systemd 管理，runner 不会杀）==="
+          sudo systemctl daemon-reload
+          sudo systemctl start admin-system.service
+
+          echo ""
+          echo "=== 6. 等待启动（25 秒）==="
           sleep 25
 
           echo ""
-          echo "=== 6. 健康检查 ==="
-          # 检查进程是否存活
-          if ! kill -0 $NEW_PID 2>/dev/null; then
-            echo "❌ 进程已退出，查看日志："
-            tail -50 /opt/admin-system/app.log
-            exit 1
-          fi
-          echo "✅ 进程存活"
+          echo "=== 7. 检查 systemd 服务状态 ==="
+          sudo systemctl status admin-system.service --no-pager || true
 
-          # 检查端口是否监听
+          echo ""
+          echo "=== 8. 健康检查 ==="
+          # 检查端口
           if ss -tlnp 2>/dev/null | grep -q ':8080'; then
             echo "✅ 8080 端口已监听"
           else
             echo "❌ 8080 端口未监听，查看日志："
-            tail -50 /opt/admin-system/app.log
+            sudo tail -50 /opt/admin-system/app.log
             exit 1
           fi
 
-          # HTTP 检查（403/200 都算服务起来了，因为 Spring Security 默认拦截无权限接口）
+          # HTTP 检查（403/200/401 都算服务起来了）
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/health 2>/dev/null || echo "000")
           echo "健康检查 HTTP 状态码: $HTTP_CODE"
           if [ "$HTTP_CODE" = "000" ]; then
             echo "❌ 服务无响应"
-            tail -30 /opt/admin-system/app.log
+            sudo tail -30 /opt/admin-system/app.log
             exit 1
           fi
-          # 200/403/401 都说明服务起来了
           if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "401" ]; then
             echo "✅ 服务启动成功！HTTP $HTTP_CODE"
           else
-            echo "⚠️ 异常状态码 $HTTP_CODE，查看日志："
-            tail -30 /opt/admin-system/app.log
+            echo "⚠️ 异常状态码 $HTTP_CODE"
+            sudo tail -30 /opt/admin-system/app.log
             exit 1
           fi
 
           echo ""
           echo "=== 部署完成 ==="
-          echo "服务 PID: $NEW_PID"
+          echo "服务管理: sudo systemctl status admin-system.service"
           echo "访问地址: http://124.174.34.105:8080/api/swagger-ui.html"
-          echo "（如果访问不了，检查火山引擎安全组是否开放 8080 端口）"
 
       # 6. 部署结果摘要
       - name: Deployment Summary
