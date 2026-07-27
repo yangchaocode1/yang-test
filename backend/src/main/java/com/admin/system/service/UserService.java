@@ -248,6 +248,39 @@ public class UserService {
     }
 
     /**
+     * 修改用户邮箱
+     * 单独更新邮箱字段，校验邮箱格式和唯一性
+     *
+     * @param id      用户ID
+     * @param request 修改邮箱请求，包含新邮箱
+     * @return 更新后的用户视图对象
+     * @throws BusinessException 用户不存在或邮箱已被占用时抛出
+     */
+    @Transactional
+    public UserVO updateEmail(Long id, UpdateEmailRequest request) {
+        SysUser user = sysUserMapper.selectById(id);
+        if (user == null) {
+            throw new BusinessException("用户不存在");
+        }
+
+        // 校验邮箱是否已被其他用户占用
+        Long existCount = sysUserMapper.selectCount(
+                new LambdaQueryWrapper<SysUser>()
+                        .eq(SysUser::getEmail, request.getEmail())
+                        .ne(SysUser::getId, id));
+        if (existCount > 0) {
+            throw new BusinessException("邮箱已被其他用户占用");
+        }
+
+        user.setEmail(request.getEmail());
+        user.setUpdatedBy(getCurrentUserId());
+        user.setUpdatedTime(LocalDateTime.now());
+        sysUserMapper.updateById(user);
+
+        return toUserVO(user);
+    }
+
+    /**
      * 设置账号有效期
      *
      * @param id      用户ID

@@ -185,6 +185,22 @@ public class UserController {
     }
 
     /**
+     * 修改用户邮箱
+     * 单独更新邮箱字段，会校验邮箱格式和唯一性
+     *
+     * @param id      用户ID
+     * @param request 修改邮箱请求，包含新邮箱
+     * @return 更新后的用户信息
+     */
+    @Operation(summary = "修改用户邮箱", description = "单独更新邮箱字段，校验邮箱格式和唯一性")
+    @PutMapping("/{id}/email")
+    @OperationLog(operation = "修改用户邮箱", module = "用户管理")
+    public Result<UserVO> updateEmail(@PathVariable Long id, @Valid @RequestBody UpdateEmailRequest request) {
+        UserVO user = userService.updateEmail(id, request);
+        return Result.success(user);
+    }
+
+    /**
      * 导出用户数据
      * 导出所有用户数据为Excel文件
      *
