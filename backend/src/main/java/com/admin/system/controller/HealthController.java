@@ -26,7 +26,7 @@ public class HealthController {
         return Result.success(Map.of(
                 "status", "UP",
                 "application", "admin-system",
-                "version", "1.0.1",
+                "version", "1.0.2",
                 "deployTime", java.time.LocalDateTime.now().toString()
         ));
     }
