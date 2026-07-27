@@ -136,13 +136,19 @@ jobs:
             -H "Content-Type: application/json" \
             -d @/tmp/request_final.json)
 
-          # 提取审查内容
-          REVIEW=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // "❌ AI 审查失败: \(RESPONSE)"')
+          # 提取审查内容（用 --arg 传值，避免 jq 字符串插值错误）
+          REVIEW=$(echo "$RESPONSE" | jq -r 'if .choices[0].message.content then .choices[0].message.content else "❌ AI 审查失败: " + (.error.message // tostring) end' 2>/dev/null)
+          if [ -z "$REVIEW" ] || [ "$REVIEW" = "null" ]; then
+            REVIEW="❌ AI 审查失败：无法解析响应
+          \`\`\`json
+          $RESPONSE
+          \`\`\`"
+          fi
 
           echo "=== AI 审查结果 ==="
           echo "$REVIEW"
 
-          # 评论到 PR
+          # 评论到 PR（用 --arg 传值，避免特殊字符破坏 JSON）
           PAYLOAD=$(jq -n --arg body "## 🤖 AI 代码审查
 
           $REVIEW
