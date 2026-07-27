@@ -1,0 +1,29 @@
+#!/bin/sh
+# Maven Wrapper - downloads and executes Maven if not available
+
+set -e
+
+MAVEN_PROJECTBASEDIR="$(cd "$(dirname "$0")" && pwd)"
+MAVEN_VERSION="3.9.6"
+MAVEN_URL="https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/${MAVEN_VERSION}/apache-maven-${MAVEN_VERSION}-bin.zip"
+MAVEN_HOME="${HOME}/.m2/wrapper/dists/apache-maven-${MAVEN_VERSION}"
+
+if [ -n "$MAVEN_CMD" ]; then
+    exec "$MAVEN_CMD" "$@"
+fi
+
+if command -v mvn >/dev/null 2>&1; then
+    exec mvn "$@"
+fi
+
+if [ ! -f "${MAVEN_HOME}/bin/mvn" ]; then
+    echo "Downloading Maven ${MAVEN_VERSION}..."
+    TMPFILE="$(mktemp /tmp/maven-XXXXXX.zip)"
+    curl -fsSL "${MAVEN_URL}" -o "${TMPFILE}"
+    mkdir -p "${MAVEN_HOME}"
+    unzip -q "${TMPFILE}" -d "$(dirname "${MAVEN_HOME}")"
+    rm -f "${TMPFILE}"
+    echo "Maven ${MAVEN_VERSION} installed to ${MAVEN_HOME}"
+fi
+
+exec "${MAVEN_HOME}/bin/mvn" "$@"
