@@ -43,27 +43,76 @@ jobs:
           cp target/*.jar deploy/admin-system.jar
           ls -la deploy/
 
-      # 5. 安装 scp/ssh 工具
-      - name: Install sshpass
-        run: sudo apt-get install -y sshpass
-
-      # 6. 上传 JAR 到服务器
+      # 5. 诊断 + 上传 JAR 到服务器
       - name: Upload JAR to server
         env:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
           SERVER_USER: ${{ secrets.SERVER_USER }}
           SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
         run: |
+          set +e  # 不立刻退出，便于看到完整诊断信息
+
+          echo "=== 1. 检查 Secrets 是否读取到 ==="
+          if [ -z "$SERVER_HOST" ]; then echo "❌ SERVER_HOST 为空"; exit 1; fi
+          if [ -z "$SERVER_USER" ]; then echo "❌ SERVER_USER 为空"; exit 1; fi
+          if [ -z "$SERVER_SSH_KEY" ]; then echo "❌ SERVER_SSH_KEY 为空"; exit 1; fi
+          echo "✅ Secrets 已读取"
+          echo "   HOST: $SERVER_HOST"
+          echo "   USER: $SERVER_USER"
+          echo "   KEY 长度: $(echo -n "$SERVER_SSH_KEY" | wc -c) 字符"
+
+          echo ""
+          echo "=== 2. 测试 22 端口连通性 ==="
+          timeout 15 bash -c "echo > /dev/tcp/$SERVER_HOST/22" 2>&1
+          if [ $? -eq 0 ]; then
+            echo "✅ 22 端口可达"
+          else
+            echo "❌ 22 端口不可达！这是 CD 失败的根因。"
+            echo "请到火山引擎控制台 → ECS → 安全组 → 入方向规则，添加："
+            echo "  协议 TCP, 端口 22, 源地址 0.0.0.0/0, 允许"
+            exit 1
+          fi
+
+          echo ""
+          echo "=== 3. 写入私钥到 ~/.ssh/id_rsa ==="
           mkdir -p ~/.ssh
-          echo "${SERVER_SSH_KEY}" > ~/.ssh/id_rsa
+          echo "$SERVER_SSH_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${SERVER_HOST} >> ~/.ssh/known_hosts 2>/dev/null
+          # 校验私钥格式
+          head -1 ~/.ssh/id_rsa
+          tail -1 ~/.ssh/id_rsa
+          echo "✅ 私钥已写入"
 
-          # 在服务器上创建目录
-          ssh -i ~/.ssh/id_rsa ${SERVER_USER}@${SERVER_HOST} "mkdir -p /opt/admin-system"
+          echo ""
+          echo "=== 4. 添加服务器指纹到 known_hosts ==="
+          ssh-keyscan -H -T 10 $SERVER_HOST >> ~/.ssh/known_hosts 2>&1
+          echo "✅ known_hosts 已更新"
 
-          # 上传 JAR
-          scp -i ~/.ssh/id_rsa backend/deploy/admin-system.jar ${SERVER_USER}@${SERVER_HOST}:/opt/admin-system/admin-system.jar
+          echo ""
+          echo "=== 5. 测试 SSH 登录 ==="
+          ssh -i ~/.ssh/id_rsa -o ConnectTimeout=15 -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST "echo '✅ SSH 登录成功'; whoami; hostname"
+          SSH_EXIT=$?
+          if [ $SSH_EXIT -ne 0 ]; then
+            echo "❌ SSH 登录失败，exit code: $SSH_EXIT"
+            echo "可能原因："
+            echo "  1. 私钥跟服务器公钥不匹配"
+            echo "  2. 服务器 sshd 禁用了 root 登录"
+            echo "  3. 服务器 sshd 端口不是 22"
+            exit 1
+          fi
+
+          echo ""
+          echo "=== 6. 创建部署目录 ==="
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST "mkdir -p /opt/admin-system && ls -la /opt/admin-system"
+
+          echo ""
+          echo "=== 7. 上传 JAR 文件 ==="
+          scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no backend/deploy/admin-system.jar $SERVER_USER@$SERVER_HOST:/opt/admin-system/admin-system.jar
+          if [ $? -ne 0 ]; then echo "❌ scp 上传失败"; exit 1; fi
+          echo "✅ JAR 上传完成"
+
+          echo ""
+          echo "=== 上传阶段全部完成 ==="
 
       # 7. 在服务器上安装 JDK（如果没装）+ 重启服务
       - name: Install JDK and restart service
