@@ -31,9 +31,33 @@ jobs:
           # 如果目录已经是 git 仓库，先清理
           rm -rf ./* ./.??* 2>/dev/null || true
 
-          # 用 GitHub token 克隆（避免 private 仓库鉴权问题）
-          git clone --depth 1 --branch main https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git .
-          echo "✅ 代码已克隆"
+          # 尝试多个镜像，第一个成功就停
+          echo "=== 尝试克隆代码（用国内镜像）==="
+          REPO_URL="https://github.com/${{ github.repository }}.git"
+          MIRRORS=(
+            "https://ghproxy.com/${REPO_URL}"
+            "https://gh-proxy.com/${REPO_URL}"
+            "https://mirror.ghproxy.com/${REPO_URL}"
+            "https://gitclone.com/github.com/${{ github.repository }}.git"
+            "${REPO_URL}"
+          )
+
+          for URL in "${MIRRORS[@]}"; do
+            echo "尝试: $URL"
+            if git clone --depth 1 --branch main "$URL" . 2>&1; then
+              echo "✅ 克隆成功: $URL"
+              break
+            fi
+            echo "❌ 失败，尝试下一个..."
+            rm -rf ./* ./.git 2>/dev/null || true
+          done
+
+          # 验证克隆成功
+          if [ ! -f "pom.xml" ] && [ ! -f "backend/pom.xml" ] && [ ! -f "README.md" ]; then
+            echo "❌ 所有镜像都克隆失败"
+            exit 1
+          fi
+          echo "=== 克隆完成 ==="
           ls -la
 
       # 2. 安装 JDK 17（用 apt，不用 actions/setup-java）
