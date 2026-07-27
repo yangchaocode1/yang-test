@@ -42,3 +42,119 @@ jobs:
           name: backend-jar
           path: backend/target/*.jar
           retention-days: 7
+
+  # AI 代码审查 job：仅在 PR 时触发，分析 diff 并评论到 PR
+  ai-review:
+    name: AI Code Review
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      # 1. 拉取代码（完整历史，用于 diff）
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 2. 获取 PR diff
+      - name: Get PR diff
+        id: diff
+        run: |
+          git diff origin/${{ github.base_ref }}...HEAD > pr.diff
+          DIFF_LENGTH=$(wc -c < pr.diff)
+          echo "diff_length=$DIFF_LENGTH" >> $GITHUB_OUTPUT
+          echo "=== Diff 大小: $DIFF_LENGTH 字节 ==="
+          head -50 pr.diff
+
+      # 3. 调用 AI API 审查代码
+      - name: Run AI review
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_API_BASE: ${{ vars.AI_API_BASE || 'https://ark.cn-beijing.volces.com/api/v3' }}
+          AI_MODEL: ${{ vars.AI_MODEL || 'doubao-seed-1-8-251228' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+
+          # 如果没配 AI_API_KEY，跳过审查
+          if [ -z "$AI_API_KEY" ]; then
+            echo "⚠️ AI_API_KEY secret 未配置，跳过 AI 审查"
+            echo "配置方法：仓库 Settings → Secrets and variables → Actions → New repository secret"
+            echo "  Name: AI_API_KEY"
+            echo "  Value: 你的 DeepSeek API key（https://platform.deepseek.com）"
+            exit 0
+          fi
+
+          # 截断 diff（避免超出 token 限制）
+          TRIMMED_DIFF=$(head -c 15000 pr.diff)
+
+          # 构造 AI 请求
+          cat > /tmp/request.json << 'JSON_EOF'
+          {
+            "model": "__MODEL__",
+            "messages": [
+              {
+                "role": "system",
+                "content": "你是资深代码审查工程师。请用简洁中文审查以下 PR 代码 diff，重点检查：1) 潜在 bug 和逻辑错误；2) 安全漏洞（SQL注入、XSS、敏感信息泄露等）；3) 性能问题；4) 代码规范和可维护性。只列出发现的问题，每条不超过2行。没问题就回复「✅ 代码无明显问题」。不要复述代码。"
+              },
+              {
+                "role": "user",
+                "content": "审查以下 PR 代码变更：\n\n```diff\n__DIFF__\n```"
+              }
+            ],
+            "temperature": 0.3,
+            "max_tokens": 1500
+          }
+          JSON_EOF
+
+          # 替换占位符（用 python 处理 JSON 转义）
+          python3 << 'PY_EOF' > /tmp/request_final.json
+          import json
+          with open('/tmp/request.json', 'r') as f:
+              text = f.read()
+          import os
+          text = text.replace('__MODEL__', os.environ['AI_MODEL'])
+          with open('pr.diff', 'r') as f:
+              diff = f.read()[:15000]
+          # JSON 转义 diff
+          diff_escaped = json.dumps(diff)[1:-1]
+          text = text.replace('__DIFF__', diff_escaped)
+          # 验证是合法 JSON
+          json.loads(text)
+          print(text)
+          PY_EOF
+
+          echo "=== 调用 AI API ($AI_API_BASE, model=$AI_MODEL) ==="
+          RESPONSE=$(curl -s -X POST "$AI_API_BASE/chat/completions" \
+            -H "Authorization: Bearer $AI_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/request_final.json)
+
+          # 提取审查内容
+          REVIEW=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // "❌ AI 审查失败: \(RESPONSE)"')
+
+          echo "=== AI 审查结果 ==="
+          echo "$REVIEW"
+
+          # 评论到 PR
+          PAYLOAD=$(jq -n --arg body "## 🤖 AI 代码审查
+
+          $REVIEW
+
+          ---
+          _由 AI 自动审查 · 模型: \`$AI_MODEL\`_" '{body: $body}')
+
+          curl -s -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/issues/$PR_NUMBER/comments" \
+            -d "$PAYLOAD"
+
+          echo ""
+          echo "=== ✅ 已发布 AI 审查评论到 PR #$PR_NUMBER ==="
