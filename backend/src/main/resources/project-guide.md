@@ -204,3 +204,4 @@ H2 内存数据库在应用重启后数据会丢失。如需持久化，切换�
 - 后端: Java 17 + Spring Boot 3.x + Spring Security + JWT + MyBatis Plus + H2
 - 前端: Vue 3 + TypeScript + Element Plus + Pinia + Vue Router + Axios
 
+
