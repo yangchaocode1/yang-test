@@ -1,0 +1,150 @@
+name: Backend CD
+
+# 触发条件：
+# 1. Backend CI 成功后自动触发
+# 2. 也支持手动触发（在 Actions 页面点 Run workflow）
+on:
+  workflow_run:
+    workflows: ['Backend CI']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy Backend to Server
+    runs-on: ubuntu-latest
+    # 只在 CI 成功时部署（手动触发也允许）
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+
+    steps:
+      # 1. 拉取代码
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. 安装 JDK 17
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      # 3. 打包（跳过测试，CI 已测过）
+      - name: Build JAR
+        working-directory: backend
+        run: ./mvnw -B clean package -DskipTests
+
+      # 4. 把 JAR 重命名为稳定文件名
+      - name: Rename JAR
+        working-directory: backend
+        run: |
+          mkdir -p deploy
+          cp target/*.jar deploy/admin-system.jar
+          ls -la deploy/
+
+      # 5. 安装 scp/ssh 工具
+      - name: Install sshpass
+        run: sudo apt-get install -y sshpass
+
+      # 6. 上传 JAR 到服务器
+      - name: Upload JAR to server
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "${SERVER_SSH_KEY}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${SERVER_HOST} >> ~/.ssh/known_hosts 2>/dev/null
+
+          # 在服务器上创建目录
+          ssh -i ~/.ssh/id_rsa ${SERVER_USER}@${SERVER_HOST} "mkdir -p /opt/admin-system"
+
+          # 上传 JAR
+          scp -i ~/.ssh/id_rsa backend/deploy/admin-system.jar ${SERVER_USER}@${SERVER_HOST}:/opt/admin-system/admin-system.jar
+
+      # 7. 在服务器上安装 JDK（如果没装）+ 重启服务
+      - name: Install JDK and restart service
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+        run: |
+          ssh -i ~/.ssh/id_rsa ${SERVER_USER}@${SERVER_HOST} 'bash -s' <<'REMOTE_SCRIPT'
+            set -e
+
+            echo "=== 1. 检查并安装 JDK 17 ==="
+            if ! command -v java &> /dev/null; then
+              echo "Java 未安装，开始安装..."
+              if command -v apt &> /dev/null; then
+                apt update && apt install -y openjdk-17-jre-headless
+              elif command -v yum &> /dev/null; then
+                yum install -y java-17-openjdk-headless
+              else
+                echo "不支持的包管理器，请手动安装 JDK 17"
+                exit 1
+              fi
+            else
+              echo "Java 已安装: $(java -version 2>&1 | head -1)"
+            fi
+
+            echo "=== 2. 停止旧服务 ==="
+            if [ -f /opt/admin-system/admin-system.pid ]; then
+              OLD_PID=$(cat /opt/admin-system/admin-system.pid)
+              if kill -0 $OLD_PID 2>/dev/null; then
+                kill $OLD_PID
+                echo "已发送停止信号给 PID $OLD_PID"
+                sleep 5
+              fi
+              rm -f /opt/admin-system/admin-system.pid
+            fi
+            # 兜底：杀掉占用 8080 的进程
+            if command -v ss &> /dev/null; then
+              PORT_PID=$(ss -tlnp | grep ':8080' | grep -oP 'pid=\K[0-9]+' | head -1)
+              if [ -n "$PORT_PID" ]; then
+                kill -9 $PORT_PID 2>/dev/null || true
+                echo "强制杀掉占用 8080 的进程 $PORT_PID"
+              fi
+            fi
+
+            echo "=== 3. 启动新服务 ==="
+            cd /opt/admin-system
+            nohup java -jar admin-system.jar --server.port=8080 > /opt/admin-system/app.log 2>&1 &
+            echo $! > /opt/admin-system/admin-system.pid
+            echo "新服务已启动, PID: $(cat /opt/admin-system/admin-system.pid)"
+
+            echo "=== 4. 等待启动 ==="
+            sleep 15
+
+            echo "=== 5. 健康检查 ==="
+            for i in 1 2 3 4 5; do
+              if curl -s http://localhost:8080/api/health | grep -q 'UP\|ok\|200'; then
+                echo "✅ 服务启动成功！"
+                curl -s http://localhost:8080/api/health
+                exit 0
+              fi
+              echo "第 $i 次检查未就绪，等待 5 秒..."
+              sleep 5
+            done
+
+            echo "❌ 服务启动失败，查看日志："
+            tail -30 /opt/admin-system/app.log
+            exit 1
+          REMOTE_SCRIPT
+
+      # 8. 部署结果通知
+      - name: Deployment Summary
+        if: always()
+        run: |
+          echo "## 部署结果" >> $GITHUB_STEP_SUMMARY
+          echo "- 服务器: ${{ secrets.SERVER_HOST }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 部署目录: /opt/admin-system" >> $GITHUB_STEP_SUMMARY
+          echo "- 服务端口: 8080" >> $GITHUB_STEP_SUMMARY
+          echo "- 访问地址: http://${{ secrets.SERVER_HOST }}:8080/api/swagger-ui.html" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "- 状态: ✅ 部署成功" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- 状态: ❌ 部署失败" >> $GITHUB_STEP_SUMMARY
+          fi
