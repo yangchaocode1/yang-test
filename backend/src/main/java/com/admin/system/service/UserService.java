@@ -248,35 +248,6 @@ public class UserService {
     }
 
     /**
-     * 禁用用户
-     * 将用户状态设置为禁用（status=0），禁用后用户无法登录
-     * 与 toggleUserStatus 不同，此方法是幂等的：重复调用不会启用用户
-     *
-     * @param id 用户ID
-     * @return 被禁用用户的视图对象（含最新状态信息）
-     * @throws BusinessException 用户不存在时抛出
-     */
-    @Transactional
-    public UserVO disableUser(Long id) {
-        SysUser user = sysUserMapper.selectById(id);
-        if (user == null) {
-            throw new BusinessException("用户不存在");
-        }
-
-        // 幂等：如果已经是禁用状态，直接返回当前用户信息
-        if (user.getStatus() != null && user.getStatus() == 0) {
-            return toUserVO(user);
-        }
-
-        user.setStatus(0);
-        user.setUpdatedBy(getCurrentUserId());
-        user.setUpdatedTime(LocalDateTime.now());
-        sysUserMapper.updateById(user);
-
-        return toUserVO(user);
-    }
-
-    /**
      * 修改用户邮箱
      * 单独更新邮箱字段，校验邮箱格式和唯一性
      *

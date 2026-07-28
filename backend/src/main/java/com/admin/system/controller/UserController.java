@@ -138,22 +138,6 @@ public class UserController {
     }
 
     /**
-     * 禁用用户
-     * 将用户状态设置为禁用（status=0），禁用后用户无法登录
-     * 此接口是幂等的：对已禁用的用户重复调用不会启用该用户
-     *
-     * @param id 用户ID
-     * @return 被禁用用户的最新信息（含状态字段）
-     */
-    @Operation(summary = "禁用用户", description = "将用户状态设置为禁用，幂等接口，重复调用不会启用")
-    @PutMapping("/{id}/disable")
-    @OperationLog(operation = "禁用用户", module = "用户管理")
-    public Result<UserVO> disableUser(@PathVariable Long id) {
-        UserVO user = userService.disableUser(id);
-        return Result.success(user);
-    }
-
-    /**
      * 设置账号有效期
      * 设置用户账号的过期时间，过期后用户无法登录
      *
