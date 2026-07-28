@@ -261,4 +261,27 @@ public class UserController {
         return Result.success("成功创建 " + count + " 个测试用户");
     }
 
+    /**
+     * 测试接口 - 按用户名搜索用户（用于 AI 审查演示）
+     * 故意写出有问题的代码，看 AI 能否审出
+     */
+    @Operation(summary = "测试接口 - 按用户名搜索")
+    @GetMapping("/test/search")
+    public Result<String> searchUser(@RequestParam String keyword) {
+        // 问题 1：SQL 注入（直接拼接用户输入）
+        String sql = "SELECT * FROM sys_user WHERE username LIKE '%" + keyword + "%'";
+        System.out.println("执行 SQL: " + sql);
+
+        // 问题 2：硬编码密码
+        String adminPwd = "123456";
+
+        // 问题 3：空指针风险（没判空就调用方法）
+        int len = keyword.length();
+
+        // 问题 4：System.out 而不是日志框架
+        System.out.println("搜索关键词长度: " + len + ", 管理员密码: " + adminPwd);
+
+        return Result.success("搜索完成");
+    }
+
 }
