@@ -261,26 +261,4 @@ public class UserController {
         return Result.success("成功创建 " + count + " 个测试用户");
     }
 
-    /**
-     * 测试 AI 审查 - 故意写出有问题的代码，验证 AI 能否审出
-     */
-    @Operation(summary = "测试 AI 审查 - 危险接口")
-    @GetMapping("/test/dangerous")
-    public Result<String> dangerousEndpoint(@RequestParam String username) {
-        // 问题 1：SQL 注入风险（直接拼接 SQL）
-        String sql = "SELECT * FROM user WHERE username = '" + username + "'";
-        System.out.println("Executing SQL: " + sql);
-
-        // 问题 2：硬编码密码
-        String password = "admin123";
-
-        // 问题 3：空指针风险（没判空就用）
-        String upperName = username.toUpperCase();
-
-        // 问题 4： System.out 应该用日志框架
-        System.out.println("User query: " + upperName + ", pwd=" + password);
-
-        return Result.success(upperName);
-    }
-
 }
