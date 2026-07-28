@@ -138,22 +138,6 @@ public class UserController {
     }
 
     /**
-     * 禁用用户
-     * 将用户状态设置为禁用（0），禁用后该用户无法登录
-     * 与 toggleUserStatus 不同，此接口只会禁用，不会误启用
-     *
-     * @param id 用户ID
-     * @return 空结果
-     */
-    @Operation(summary = "禁用用户", description = "将用户状态设置为禁用，禁用后无法登录")
-    @PutMapping("/{id}/disable")
-    @OperationLog(operation = "禁用用户", module = "用户管理")
-    public Result<Void> disableUser(@PathVariable Long id) {
-        userService.disableUser(id);
-        return Result.success();
-    }
-
-    /**
      * 设置账号有效期
      * 设置用户账号的过期时间，过期后用户无法登录
      *
